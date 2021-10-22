@@ -390,7 +390,7 @@ def process_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, n
     #print(frames_buffer)
     print(index_buffer)
 
-    frames_received = len(received_exp_frames) // (metadata["double_exposure"] + 1)
+    frames_ready = len(received_exp_frames) // (metadata["double_exposure"] + 1)
     frames_sent = 0
 
     print("Receiving all exposure frames...")
@@ -420,7 +420,7 @@ def process_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, n
 
             frames_buffer = np.array(frames_buffer)
 
-            print(frames_buffer)
+            #print(frames_buffer)
 
             #if double exposure we take 1 every 2 (because indexes are duplicated as they are divided by 2 above)
             my_indexes.extend(index_buffer[::metadata["double_exposure"] + 1]) 
@@ -451,12 +451,17 @@ def process_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, n
             output_index += n_frames_out
             processed_batches += 1
 
+            frames_ready += n_frames_out
+
+            print("Frames ready {}".format(frames_ready))
+            print(my_indexes)
+
             if rank == 0:
                 sys.stdout.write(color("\r Computing batch = %s of %s frames\n" %(processed_batches, n_frames_out), bcolors.HEADER))
                 sys.stdout.flush()
 
         #Seding frames to socket
-        if output_socket and (frames_received % output_buffer_size == 0 or number == total_input_frames - 1):
+        if output_socket and (frames_ready // output_buffer_size >= 1 or number == total_input_frames - 1):
 
             max_index = min(frames_sent + output_buffer_size, total_output_frames)
 
@@ -470,14 +475,16 @@ def process_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, n
 
                 network_metadata["intermediate_socket"].send(msg)
 
+
             frames_sent += output_buffer_size
+            frames_ready -= output_buffer_size
             print("{} frames sent".format(min(frames_sent, total_output_frames)))
 
         #if rank == 0: print("\n")
 
-        if (final_number % mpi_size) == rank:
-            frames_received = frames_received + 1/ (metadata['double_exposure']+1)
-            print(frames_received)
+        #if (final_number % mpi_size) == rank:
+        #    frames_received = frames_received + 1/ (metadata['double_exposure']+1)
+   
 
     return out_data, my_indexes
 
