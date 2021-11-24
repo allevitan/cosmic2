@@ -13,10 +13,13 @@ help =   "\nUsage: cosmicp.py [options] input.json\n\n\
 \t -b N -> Set local batch size = N, per MPI rank. N = 20 by default.\n\
 \t -m M -> Output mode. Supports M = 'disk','socket' and 'disksocket'. 'disk' (default) saves the final results into disk, \n\
 \t\t\t'socket' streams the data into a xpub zmq socket, and 'disksocket' does the same but also stores the final results into disk at the end.\n\
+------------------------------------------------------------------------------\n\
+Streaming analysis options:\n\
 \t -o ADDRESS -> Set ADDRESS as 'IP:PORT' corresponding to the address in an XSUB/XPUB router publishes all data from all MPI ranks.\n\
 \t\t\tDefaults to {}\n\
 \t -i ADDRESS -> Set ADDRESS as 'IP:PORT' corresponding to the intermediate address in which each MPI rank publishes their results.\n\
 \t\t\tDefaults to {}\n\
+\t -L -> Keep running and waiting for incoming reconstructions. Only works with an streaming reconstruction. Off by default.\n\
 \n\n".format(default_conf, default_output_address, default_intermediate_address)
 
 def parse_arguments(args, options = None):
@@ -37,8 +40,8 @@ def parse_arguments(args, options = None):
                    "intermediate_address": default_intermediate_address}
 
     try:
-        opts, args_left = getopt.getopt(args,"hgc:b:m:o:i:", \
-                              ["gpu_accelerated", "conf_file=", "batch_size_per_rank=", "output_mode=", "output_address=", "intermediate_address="])
+        opts, args_left = getopt.getopt(args,"hgc:b:m:o:i:L", \
+                              ["gpu_accelerated", "conf_file=", "batch_size_per_rank=", "output_mode=", "output_address=", "intermediate_address=", "keep_running"])
 
     except getopt.GetoptError:
         printv(color(help, bcolors.WARNING))
@@ -60,6 +63,8 @@ def parse_arguments(args, options = None):
             options["output_address"] = str(arg)
         if opt in ("-i", "--intermediate_address"):
             options["intermediate_address"] = str(arg)
+        elif opt in ("-L", "--keep_running"):
+            options["keep_running"] = True   
 
 
     if len(args_left) != 1:

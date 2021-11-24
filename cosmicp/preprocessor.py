@@ -230,7 +230,7 @@ def receive_n_frames(n_frames, network_metadata):
 
         (number, frame) = msgpack.unpackb(msg, object_hook= msgpack_numpy.decode, use_list=False,  max_bin_len=50000000, raw=False)
 
-        printd(color("\r Received frame " + str(number), bcolors.HEADER))
+        printd(color("\r Received frame " + str(int(number)), bcolors.HEADER))
 
         frames.append(frame)
         n_received += 1           
@@ -415,7 +415,7 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
     frames_ready = len(received_exp_frames) // (metadata["double_exposure"] + 1)
     frames_sent = 0
 
-    print("Receiving all exposure frames...")
+    printv(color("\r Receiving all exposure frames...", bcolors.HEADER))
 
     while number != total_input_frames - 1: 
 
@@ -429,7 +429,7 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
         #Each rank takes only some frames
         if (final_number % mpi_size) == rank: 
 
-            print("Received frame " + str(number))
+            printd(color("\r Received frame " + str(number), bcolors.HEADER))
 
             frames_buffer.append(frame)
             index_buffer.append(final_number)
@@ -438,7 +438,7 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
         #after filling the buffer we do the processing, or if it is the last frame we consume the buffer too
         if len(frames_buffer) == input_buffer_size or number == total_input_frames - 1:
 
-            print("Processing input frames buffer...")
+            printd(color("\r Processing input frames buffer...", bcolors.HEADER))
 
             frames_buffer = np.array(frames_buffer)
 
@@ -458,9 +458,6 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
             # TODO: 'centered_rescaled_frames_jax' picks up an additional dimension somehow, should fix this...
             out_data = jax.ops.index_update(out_data, jax.ops.index[output_index:output_index + n_frames_out, :, :], centered_rescaled_frames_jax[:,0,:,:])
 
-
-            #print(out_data[output_index:output_index + n_frames_out, :, :])
-
             frames_buffer = []
             index_buffer = []
 
@@ -468,9 +465,6 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
             processed_batches += 1
 
             frames_ready += n_frames_out
-
-            print("Frames ready {}".format(frames_ready))
-            print(my_indexes)
 
             if rank == 0:
                 sys.stdout.write(color("\r Computing batch = %s of %s frames\n" %(processed_batches, n_frames_out), bcolors.HEADER))
@@ -486,7 +480,7 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
 
             frames_sent += output_buffer_size
             frames_ready -= output_buffer_size
-            print("{} frames sent".format(min(frames_sent, total_output_frames)))
+            #print("{} frames sent".format(min(frames_sent, total_output_frames)))
    
 
     return out_data, my_indexes
