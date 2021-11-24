@@ -69,14 +69,11 @@ if __name__ == '__main__':
         metadata = complete_metadata(metadata, options["conf_file"])
 
         dark_frames, exp_frames = [],[]
-        print(metadata)
 
     elif options["fname"].endswith('.json'):
         #fname = "/cosmic-dtn/groups/cosmic/Data/2021/09/210916/210916006/210916006_002_info.json"
         metadata = diskIO.read_metadata(options["fname"])
         metadata = complete_metadata(metadata, options["conf_file"])
-
-        print(metadata)
 
         dark_frames = diskIO.read_dark_data(metadata, options["fname"])
         ##########   
@@ -92,8 +89,6 @@ if __name__ == '__main__':
         #metadata = diskIO.read_metadata("/cosmic-dtn/groups/cosmic/Data/2021/09/210923/210923044/210923044_002_info.json")
 
         metadata = complete_metadata(metadata, options["conf_file"])
-
-        print(metadata)
 
         f = h5py.File(options["fname"], 'r')
 
@@ -124,12 +119,14 @@ if __name__ == '__main__':
     if options["fname"].endswith('.h5'):
         f.close
 
+
     #In socket mode we don't save the final results
     if options["output_mode"] != "socket":
         save_results(options["fname"], metadata, out_data, my_indexes, metadata["translations"].shape[0])
 
     #if network_metadata != {} and rank == 0:
-    #    network_metadata["context"].destroy()
+        #network_metadata["input_socket"].close()
+        #network_metadata["intermediate_socket"].close()
 
 
   

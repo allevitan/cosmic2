@@ -150,6 +150,7 @@ def subscribe_to_socket(network_metadata):
 
     socket = network_metadata["context"].socket(zmq.SUB)
     socket.setsockopt(zmq.SUBSCRIBE, b'')
+    socket.setsockopt(zmq.LINGER, -1)
     socket.set_hwm(2000)
     socket.connect(addr)
 
@@ -160,6 +161,8 @@ def publish_to_socket(network_metadata):
     addr = 'tcp://%s' % network_metadata["intermediate_address"]
 
     socket = network_metadata["context"].socket(zmq.PUB)
+    socket.setsockopt(zmq.SNDHWM, 0)
+    socket.setsockopt(zmq.LINGER, -1)
     socket.set_hwm(2000)
     socket.connect(addr)
 
@@ -167,12 +170,19 @@ def publish_to_socket(network_metadata):
 
 def xsub_xpub_router(network_metadata):
 
-    print("Setting up XSUB XPUB router, this will cast a thread running with the proxy router...")
+    printv(color("\r Setting up XSUB XPUB router, this will cast a thread running with the proxy router...", bcolors.HEADER))
 
     frontend_socket = network_metadata["context"].socket(zmq.XPUB)
+
+    frontend_socket.setsockopt(zmq.SNDHWM, 0)
+    frontend_socket.setsockopt(zmq.LINGER, -1)
+
     frontend_socket.bind('tcp://%s' % network_metadata["output_address"])
 
     backend_socket = network_metadata["context"].socket(zmq.XSUB)
+
+    backend_socket.setsockopt(zmq.LINGER, -1)
+
     backend_socket.bind('tcp://%s' % network_metadata["intermediate_address"])
 
     th = threading.Thread(target=zmq.proxy, args = (frontend_socket, backend_socket))
@@ -185,15 +195,17 @@ def xsub_xpub_router(network_metadata):
 
 def receive_metadata(network_metadata):
 
-    print("Waiting for metadata...")
+    printv(color("\r Waiting for metadata...", bcolors.HEADER))
+
     metadata = json.loads(network_metadata["input_socket"].recv_string())  # blocking
-    print("Received metadata ")
-    print(metadata)
+
+    printv(color("\r Metadata received", bcolors.HEADER))
 
     return metadata
 
 def send_metadata(network_metadata, metadata):
-    print("Sending metadata to socket...")
+
+    printd(color("\r Sending metadata to socket...", bcolors.HEADER))
 
     #We remove ndarrays here so that we can serialize all the metadata.
     metadata_plain = metadata.copy()
@@ -201,9 +213,9 @@ def send_metadata(network_metadata, metadata):
     metadata_plain["translations"] = metadata_plain["translations"].tolist()
     metadata_plain["center_of_mass"] = metadata_plain["center_of_mass"].tolist()
 
-    print(metadata_plain)
-
     network_metadata["intermediate_socket"].send_string(json.dumps(metadata_plain))
+
+    printd(color("\r Metadata sent", bcolors.HEADER))
 
 
 def receive_n_frames(n_frames, network_metadata):
@@ -218,7 +230,7 @@ def receive_n_frames(n_frames, network_metadata):
 
         (number, frame) = msgpack.unpackb(msg, object_hook= msgpack_numpy.decode, use_list=False,  max_bin_len=50000000, raw=False)
 
-        print("Received frame " + str(number))
+        printd(color("\r Received frame " + str(number), bcolors.HEADER))
 
         frames.append(frame)
         n_received += 1           
@@ -263,12 +275,14 @@ def prepare_from_mem(metadata, dark_frames, raw_frames):
 
 def prepare_from_socket(metadata, network_metadata):
 
-    print("Receiving dark frames...")
+    printv(color("\r Receiving dark frames...", bcolors.HEADER))
+
     dark_frames = receive_n_frames(metadata["dark_num_total"] * (metadata['double_exposure']+1), network_metadata)
 
     n_some_exp_frames = 4  
 
-    print("Receiving some exposure frames...")
+    printv(color("\r Receiving some exposure frames...", bcolors.HEADER))
+
     #We need some exp frames to compute the center of mass so we take those now and keep them for later 
     some_exp_frames = receive_n_frames(n_some_exp_frames, network_metadata)
 
@@ -282,7 +296,6 @@ def prepare(metadata, dark_frames, raw_frames, network_metadata):
     if "input_socket" in network_metadata:
         metadata, center_frames, dark_frames = prepare_from_socket(metadata, network_metadata)
         received_exp_frames = center_frames
-        print(received_exp_frames.shape)
 
     #data coming from mem or from disk
     else:
@@ -344,11 +357,11 @@ def process(metadata, raw_frames, background_avg, local_batch_size, received_exp
 
 def send_socket_data(frames, indexes, min_i, max_i, network_metadata):
 
-    print("Sending output frames buffer...")
+    printd(color("\r Sending output frames buffer to socket...", bcolors.HEADER))
+
     for i in range(min_i, max_i):
-        print(i)
-        print(indexes)
-        print("Sending frame " + str(indexes[i]) + " to socket")
+
+        printd(color("\r Sending frame " + str(indexes[i]), bcolors.HEADER))
 
         msg = msgpack.packb((b'%d' % indexes[i], npo.array(frames[i])), default=msgpack_numpy.encode, use_bin_type=True)
         network_metadata["intermediate_socket"].send(msg)
@@ -382,7 +395,6 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
 
     out_data_shape = (n_batches * mpi_size //(metadata['double_exposure']+1) + extra, metadata["output_frame_width"], metadata["output_frame_width"])
 
-    print(out_data_shape)
 
     out_data = np.empty(out_data_shape,dtype=np.float32)
 
@@ -399,8 +411,6 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
 
     my_indexes = []
 
-    #print(frames_buffer)
-    print(index_buffer)
 
     frames_ready = len(received_exp_frames) // (metadata["double_exposure"] + 1)
     frames_sent = 0
@@ -445,15 +455,9 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
                 centered_rescaled_frames_jax = filter_all(frames_buffer)
 
 
-            print(n_frames_out)
-            print(output_index)
-            print(centered_rescaled_frames_jax.shape)
-            print(out_data.shape)
-
             # TODO: 'centered_rescaled_frames_jax' picks up an additional dimension somehow, should fix this...
             out_data = jax.ops.index_update(out_data, jax.ops.index[output_index:output_index + n_frames_out, :, :], centered_rescaled_frames_jax[:,0,:,:])
 
-            print(output_index)
 
             #print(out_data[output_index:output_index + n_frames_out, :, :])
 
@@ -492,8 +496,6 @@ def process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter
 
     n_total_frames = raw_frames.shape[0]
 
-    print("TOTAL")
-    print(n_total_frames)
 
     #if the batch size is not even in double exposure we fix that
     if local_batch_size % 2 != 0 and metadata['double_exposure']:
@@ -574,9 +576,6 @@ def process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter
 
             send_socket_data(out_data, my_indexes, i_s, i_e, network_metadata)
 
-            print("{} frames sent".format(i_e))
-
-
     if rank == 0: print("\n")
     return out_data[:extra_last_batch], my_indexes
 
@@ -589,12 +588,9 @@ def save_results(fname, metadata, local_data, my_indexes, n_frames):
 
     frames_gather = gather(local_data, (n_frames, local_data[0].shape[0], local_data[0].shape[1]), n_elements, npo.float32)  
 
-    print(my_indexes)
-
     #we need the indexes too to map properly each gathered frame
     index_gather = gather(my_indexes, n_frames, len(my_indexes), npo.int32)
 
-    print(index_gather)
 
     if rank == 0:
 
@@ -604,8 +600,6 @@ def save_results(fname, metadata, local_data, my_indexes, n_frames):
         frames_gather[:,:,:] = frames_gather[index_gather,:,:]
 
         printv(color("\r Final output data size: {}".format(frames_gather.shape), bcolors.HEADER))
-
-        print(index_gather)
 
         #for i in range(0, frames_gather.shape[0]):
         #    print(frames_gather[i][0:10])
@@ -660,8 +654,6 @@ def save_results(fname, metadata, local_data, my_indexes, n_frames):
                 os.remove(nexus_filename)
             except OSError:
                 pass
-
-            print(metadata)
 
             metadata["x_translations"] = metadata["translations"][:,0]
             metadata["y_translations"] = metadata["translations"][:,1]
