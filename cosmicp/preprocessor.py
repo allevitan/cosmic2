@@ -278,8 +278,8 @@ def prepare(metadata, dark_frames, raw_frames, network_metadata):
 
     received_exp_frames = []#this is used when reading from socket, we read some exp frames here first to compute some things so we have to keep them
 
-    #data coming from socket
-    if network_metadata != {}:
+    #data coming in from socket
+    if "input_socket" in network_metadata:
         metadata, center_frames, dark_frames = prepare_from_socket(metadata, network_metadata)
         received_exp_frames = center_frames
         print(received_exp_frames.shape)
@@ -331,18 +331,30 @@ def process(metadata, raw_frames, background_avg, local_batch_size, received_exp
 
     filter_all, filter_all_dexp = prepare_filter_functions(metadata, background_avg)
 
-    if network_metadata != {}:
+    if "input_socket" in network_metadata:
         printv(color("\r Processing a stack of frames of size: {}".format((metadata["exp_num_total"], 
                        received_exp_frames[0].shape[0], received_exp_frames[0].shape[1])), bcolors.HEADER))
-        results = process_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, network_metadata)
+        results = process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, network_metadata)
     else:
         printv(color("\r Processing a stack of frames of size: {}".format((raw_frames.shape[0], raw_frames[0].shape[0], raw_frames[0].shape[1])), bcolors.HEADER))
-        results = process_batch(metadata, raw_frames, local_batch_size, filter_all, filter_all_dexp)
+        results = process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter_all_dexp, network_metadata)
 
     return results
 
 
-def process_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, network_metadata):
+def send_socket_data(frames, indexes, min_i, max_i, network_metadata):
+
+    print("Sending output frames buffer...")
+    for i in range(min_i, max_i):
+        print(i)
+        print(indexes)
+        print("Sending frame " + str(indexes[i]) + " to socket")
+
+        msg = msgpack.packb((b'%d' % indexes[i], npo.array(frames[i])), default=msgpack_numpy.encode, use_bin_type=True)
+        network_metadata["intermediate_socket"].send(msg)
+
+
+def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, network_metadata):
 
     input_buffer_size = 12 #How many frames are stored in each rank before actually computing them
 
@@ -464,34 +476,24 @@ def process_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, n
         if output_socket and (frames_ready // output_buffer_size >= 1 or number == total_input_frames - 1):
 
             max_index = min(frames_sent + output_buffer_size, total_output_frames)
+            min_index = frames_sent
 
-            print("Sending output frames buffer...")
-            for i in range(frames_sent, max_index):
-                print(i)
-                print(my_indexes)
-                print("Sending frame " + str(my_indexes[i]) + " to socket")
-
-                msg = msgpack.packb((b'%d' % my_indexes[i], npo.array(out_data[i])), default=msgpack_numpy.encode, use_bin_type=True)
-
-                network_metadata["intermediate_socket"].send(msg)
-
+            send_socket_data(out_data, my_indexes, min_index, max_index, network_metadata)
 
             frames_sent += output_buffer_size
             frames_ready -= output_buffer_size
             print("{} frames sent".format(min(frames_sent, total_output_frames)))
-
-        #if rank == 0: print("\n")
-
-        #if (final_number % mpi_size) == rank:
-        #    frames_received = frames_received + 1/ (metadata['double_exposure']+1)
    
 
     return out_data, my_indexes
 
 
-def process_batch(metadata, raw_frames, local_batch_size, filter_all, filter_all_dexp):
+def process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter_all_dexp, network_metadata):
 
     n_total_frames = raw_frames.shape[0]
+
+    print("TOTAL")
+    print(n_total_frames)
 
     #if the batch size is not even in double exposure we fix that
     if local_batch_size % 2 != 0 and metadata['double_exposure']:
@@ -520,10 +522,18 @@ def process_batch(metadata, raw_frames, local_batch_size, filter_all, filter_all
         #To account for this, we need to have an index substraction (extra_last_batch) for last rank accross the ones having extra work
         if rank == n_ranks_extra - 1 and extra % local_batch_size != 0: 
             extra_last_batch = - (local_batch_size - (extra % local_batch_size)) // (metadata['double_exposure']+1)     
-    
-    out_data_shape = (n_batches * local_batch_size //(metadata['double_exposure']+1) , metadata["output_frame_width"], metadata["output_frame_width"])
+
+    n_out_frames = n_batches * local_batch_size //(metadata['double_exposure']+1)    
+
+    out_data_shape = (n_out_frames , metadata["output_frame_width"], metadata["output_frame_width"])
     out_data = np.empty(out_data_shape,dtype=np.float32)
     frames_batch = npo.empty((local_batch_size, raw_frames[0].shape[0], raw_frames[0].shape[1]))
+
+    #Streaming variables
+    frames_ready = 0
+    frames_sent = 0
+    streaming_output_buffer_size = 12
+    output_socket = "intermediate_socket" in network_metadata
 
     for i in range(0, n_batches):
 
@@ -553,6 +563,19 @@ def process_batch(metadata, raw_frames, local_batch_size, filter_all, filter_all
         if rank == 0:
             sys.stdout.write(color("\r Computing batch = %s/%s " %(i+1,n_batches), bcolors.HEADER))
             sys.stdout.flush()
+
+        frames_ready += (i_e - i_s)
+
+        #Sending frames to socket
+        if output_socket:
+
+            if extra_last_batch is not None and i == n_batches - 1: 
+                i_e += extra_last_batch #extra_last_batch is a negative offset, we add it here
+
+            send_socket_data(out_data, my_indexes, i_s, i_e, network_metadata)
+
+            print("{} frames sent".format(i_e))
+
 
     if rank == 0: print("\n")
     return out_data[:extra_last_batch], my_indexes

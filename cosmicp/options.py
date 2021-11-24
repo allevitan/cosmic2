@@ -5,7 +5,7 @@ from cosmicp.common import printv, color, bcolors
 
 default_conf = os.path.join(os.path.expanduser('~')) + "/cosmicp_config/default.json" #This default.json is written there during installation
 default_output_address = "127.0.0.1:50008"
-default_intermediate_address = "127.0.0.1:50009" 
+default_intermediate_address = "127.0.0.1:50021" 
 
 help =   "\nUsage: cosmicp.py [options] input.json\n\n\
 \t -g   -> Perform a GPU execution, off by default.\n\

@@ -54,16 +54,14 @@ if __name__ == '__main__':
         printv(color("\nProcessing data from disk\n", bcolors.OKGREEN))
         pass
 
-    #data coming from socket
-    if network_metadata == {} and options["output_mode"] != "disk":
 
-        printv(color("Output socket mode is only available when input data also comes from socket, use -m 'disk' when reading input from disk", bcolors.WARNING))
-        sys.exit(2)
-
-    #data coming from socket
-    if network_metadata != {}:
+    #data coming from socket or into a socket
+    if "input_address" in network_metadata or options["output_mode"] != "disk":
 
         network_metadata["context"] = zmq.Context()
+
+    #data coming from socket
+    if "input_address" in network_metadata:
 
         network_metadata["input_socket"] = subscribe_to_socket(network_metadata)
 
