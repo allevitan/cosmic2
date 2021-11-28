@@ -230,7 +230,7 @@ def receive_n_frames(n_frames, network_metadata):
 
         (number, frame) = msgpack.unpackb(msg, object_hook= msgpack_numpy.decode, use_list=False,  max_bin_len=50000000, raw=False)
 
-        printd(color("\r Received frame " + str(int(number)), bcolors.HEADER))
+        printv(color("\r Received frame " + str(int(number)), bcolors.HEADER))
 
         frames.append(frame)
         n_received += 1           
@@ -369,18 +369,24 @@ def send_socket_data(frames, indexes, min_i, max_i, network_metadata):
 
 def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, network_metadata):
 
-    input_buffer_size = 12 #How many frames are stored in each rank before actually computing them
+
+    total_input_frames = metadata["exp_num_total"] * (metadata['double_exposure']+1)
+    total_output_frames = metadata["exp_num_total"]  
+    
+    buffer_size_ratio = 0.01
+    b_size = int(total_input_frames * buffer_size_ratio) // mpi_size
+    
+    if b_size % 2 == 1: b_size += 1
+
+    input_buffer_size = max(6, b_size) #How many frames are stored in each rank before actually computing them
 
     #How many frames are stored in each rank before sending them out to a socket, 
     #this always has to be >= than input_buffer_size// (metadata['double_exposure']+1)
-    output_buffer_size = 12 
+    output_buffer_size = max(6, b_size) 
 
     output_index = 0
     batch = 1
     number = 0
-
-    total_input_frames = metadata["exp_num_total"] * (metadata['double_exposure']+1)
-    total_output_frames = metadata["exp_num_total"]  
 
     output_socket = "intermediate_socket" in network_metadata
 
@@ -412,7 +418,7 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
     my_indexes = []
 
 
-    frames_ready = len(received_exp_frames) // (metadata["double_exposure"] + 1)
+    frames_ready = len(frames_buffer) // (metadata["double_exposure"] + 1)
     frames_sent = 0
 
     printv(color("\r Receiving all exposure frames...", bcolors.HEADER))
@@ -470,10 +476,11 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
                 sys.stdout.write(color("\r Computing batch = %s of %s frames\n" %(processed_batches, n_frames_out), bcolors.HEADER))
                 sys.stdout.flush()
 
-        #Seding frames to socket
+        #Sending frames to socket
         if output_socket and (frames_ready // output_buffer_size >= 1 or number == total_input_frames - 1):
 
-            max_index = min(frames_sent + output_buffer_size, total_output_frames)
+            #max_index = min(frames_sent + output_buffer_size, total_output_frames)
+            max_index = frames_sent + n_frames_out
             min_index = frames_sent
 
             send_socket_data(out_data, my_indexes, min_index, max_index, network_metadata)
@@ -579,6 +586,8 @@ def save_results(fname, metadata, local_data, my_indexes, n_frames):
     nexus_file = cxi_file = True
 
     n_elements = npo.prod([i for i in local_data.shape])
+    
+    print(npo.max(local_data))
 
     frames_gather = gather(local_data, (n_frames, local_data[0].shape[0], local_data[0].shape[1]), n_elements, npo.float32)  
 

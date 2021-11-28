@@ -120,6 +120,8 @@ if __name__ == '__main__':
 
         out_data, my_indexes = process(metadata, exp_frames, background_avg, options["batch_size_per_rank"], received_exp_frames, network_metadata)
 
+        printv(color("\nScan preprocessing completed\n", bcolors.OKGREEN))
+
         if options["fname"].endswith('.h5'):
             f.close
 

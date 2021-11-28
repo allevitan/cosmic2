@@ -19,7 +19,7 @@ Streaming analysis options:\n\
 \t\t\tDefaults to {}\n\
 \t -i ADDRESS -> Set ADDRESS as 'IP:PORT' corresponding to the intermediate address in which each MPI rank publishes their results.\n\
 \t\t\tDefaults to {}\n\
-\t -L -> Keep running and waiting for incoming reconstructions. Only works with an streaming reconstruction. Off by default.\n\
+\t -L -> Keep running and waiting for incoming scans. Only works with an streaming reconstruction. Off by default.\n\
 \n\n".format(default_conf, default_output_address, default_intermediate_address)
 
 def parse_arguments(args, options = None):
@@ -37,7 +37,8 @@ def parse_arguments(args, options = None):
                    "batch_size_per_rank": 20,
                    "output_mode":"disk",
                    "output_address": default_output_address,
-                   "intermediate_address": default_intermediate_address}
+                   "intermediate_address": default_intermediate_address,
+                   "keep_running": False}
 
     try:
         opts, args_left = getopt.getopt(args,"hgc:b:m:o:i:L", \
@@ -63,7 +64,7 @@ def parse_arguments(args, options = None):
             options["output_address"] = str(arg)
         if opt in ("-i", "--intermediate_address"):
             options["intermediate_address"] = str(arg)
-        elif opt in ("-L", "--keep_running"):
+        if opt in ("-L", "--keep_running"):
             options["keep_running"] = True   
 
 
