@@ -462,7 +462,8 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
 
 
             # TODO: 'centered_rescaled_frames_jax' picks up an additional dimension somehow, should fix this...
-            out_data = jax.ops.index_update(out_data, jax.ops.index[output_index:output_index + n_frames_out, :, :], centered_rescaled_frames_jax[:,0,:,:])
+            #out_data = jax.ops.index_update(out_data, jax.ops.index[output_index:output_index + n_frames_out, :, :], centered_rescaled_frames_jax[:,0,:,:])
+            out_data = out_data.at[output_index:output_index + n_frames_out, :, :].set(centered_rescaled_frames_jax[:,0,:,:])
 
             frames_buffer = []
             index_buffer = []
@@ -561,7 +562,8 @@ def process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter
             centered_rescaled_frames_jax = filter_all(frames_batch)
 
         # TODO: 'centered_rescaled_frames_jax' picks up an additional dimension somehow, should fix this...
-        out_data = jax.ops.index_update(out_data, jax.ops.index[i_s:i_e, :, :], centered_rescaled_frames_jax[:,0,:,:])
+        #out_data = jax.ops.index_update(out_data, jax.ops.index[i_s:i_e, :, :], centered_rescaled_frames_jax[:,0,:,:])
+        out_data = out_data.at[i_s:i_e, :, :].set(centered_rescaled_frames_jax[:,0,:,:])
 
         if rank == 0:
             sys.stdout.write(color("\r Computing batch = %s/%s " %(i+1,n_batches), bcolors.HEADER))

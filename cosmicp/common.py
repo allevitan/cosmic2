@@ -94,7 +94,11 @@ def complete_metadata(metadata, conf_file):
     metadata["desired_padded_input_frame_width"] = None
     metadata["output_frame_width"] = defaults["geometry"]["shape"]  #256 # final frame width 
     metadata["translations"] = convert_translations(np.array(metadata["translations"]))
-    metadata["double_exp_time_ratio"] = metadata["dwell1"] // metadata["dwell2"] # time ratio between long and short exposure
+    if metadata["double_exposure"]:
+        metadata["double_exp_time_ratio"] = metadata["dwell1"] // metadata["dwell2"] # time ratio between long and short exposure
+    else:
+        metadata["double_exp_time_ratio"] = 1
+    
 
     return metadata
 

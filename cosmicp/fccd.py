@@ -83,7 +83,8 @@ def conv2d(data, filt):
         s.data_s=np.empty(np.shape(data))
         for r in s.range(data.shape[1]):
             # data_s[:,r] = np.convolve(data[:,r], filt, 'same')
-            s.data_s = jax.ops.index_update(s.data_s, jax.ops.index[:,r], np.convolve(data[:,r], filt, 'same'))
+            #s.data_s = jax.ops.index_update(s.data_s, jax.ops.index[:,r], np.convolve(data[:,r], filt, 'same'))
+            s.data_s = s.data_s.at[:,r].set(np.convolve(data[:,r], filt, 'same'))
 
         return s.data_s
 
