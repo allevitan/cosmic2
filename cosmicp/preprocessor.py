@@ -13,6 +13,7 @@ import math
 import zmq
 import json
 import threading
+from skimage.io import imsave
 from .nexus_io import write, nexus_metadata, nexus_data, cosmic_metadata
 from .fccd import imgXraw as cleanXraw
 from .common import printd, printv, rank, gather, color, bcolors, comm
@@ -55,7 +56,9 @@ def filter_frame(frame, bbox):
 @partial(jax.jit, static_argnums=2)
 def shift_rescale(img, center_of_mass, out_frame_shape, scale):
 
-    img_out = jax.image.scale_and_translate(img, [out_frame_shape, out_frame_shape], [0,1], jax.numpy.array([scale, scale]), jax.numpy.array([center_of_mass[1], center_of_mass[0]]) , method = "bilinear", antialias = False).T
+    img_out = jax.image.scale_and_translate(img, [960,960], [0,1], jax.numpy.array([scale,scale]), jax.numpy.array([center_of_mass[0], center_of_mass[1]]) , method = "bilinear", antialias = False)
+    img_out = jax.image.scale_and_translate(img_out, [out_frame_shape, out_frame_shape], [0,1], jax.numpy.array([1,1]), jax.numpy.array([0,0]) , method = "bilinear", antialias = False).T
+    #img_out = jax.image.scale_and_translate(img, [out_frame_shape, out_frame_shape], [0,1], jax.numpy.array([scale, scale]), jax.numpy.array([center_of_mass[1], center_of_mass[0]]) , method = "bilinear", antialias = False).T
 
     img_out*=(img_out>0)
 
@@ -88,7 +91,7 @@ def compute_background_metadata(metadata, frames, dark_frames):
             frame_exp1 = frames[i] - background_avg[0]
             frame_exp2 = frames[i + 1] - background_avg[1]
             # get clean frames
-            clean_frame.append(combine_double_exposure(cleanXraw(frame_exp1), cleanXraw(frame_exp2), metadata["double_exp_time_ratio"]))
+            clean_frame.append(combine_double_exposure(cleanXraw(frame_exp2), cleanXraw(frame_exp1), metadata["double_exp_time_ratio"]))
             
     else:
         background_avg = np.average(dark_frames,axis=0)
@@ -99,7 +102,7 @@ def compute_background_metadata(metadata, frames, dark_frames):
 
     clean_frame = npo.array(clean_frame)
 
-    metadata["frame_width"] = clean_frame.shape[0]
+    metadata["frame_width"] = clean_frame.shape[-1]
 
     #Coordinates from 0 to frame width, 1 dimension
     xx=np.reshape(np.arange(metadata["frame_width"]),(metadata["frame_width"],1))
@@ -126,19 +129,22 @@ def compute_background_metadata(metadata, frames, dark_frames):
     kernel_width = np.max(np.array([np.int32(np.floor(metadata["padded_frame_width"]/metadata["output_frame_width"])),1]))
     bbox = np.ones((kernel_width,kernel_width))
 
-    filtered_frames = []
-    for i in range(0, clean_frame.shape[0]):
-        clean_frame[i] = filter_frame(clean_frame[i], bbox)
+    #filtered_frames = []
+    #for i in range(0, clean_frame.shape[0]):
+    #    clean_frame[i] = filter_frame(clean_frame[i], bbox)
+    #
+    #    filtered_frames.append(shift_rescale(clean_frame[i], (0,0), metadata["output_frame_width"], metadata["output_frame_width"]/metadata["padded_frame_width"])[0])
 
-        filtered_frames.append(shift_rescale(clean_frame[i], (0,0), metadata["output_frame_width"], metadata["output_frame_width"]/metadata["padded_frame_width"])[0])
-
-    filtered_frames = npo.array(filtered_frames)
-
-    com = center_of_mass(filtered_frames*(filtered_frames>0), yy)
-
+    #filtered_frames = npo.array(filtered_frames)
+    #com = center_of_mass(filtered_frames*(filtered_frames>0), yy)
+    
+    clean_frame = clean_frame.mean(axis=0)
+    clean_frame[480:,0:160] = 0. ##zero out the bad sector
+    background_avg = background_avg.at[:,0:520,-180:].set(0.)
+    com = center_of_mass(clean_frame * (clean_frame > 0.05*clean_frame.max()), xx)
     com = npo.array(np.round(com))
 
-    metadata["center_of_mass"] = metadata["output_frame_width"]//2 - com
+    metadata["center_of_mass"] = 480 - com #metadata["output_frame_width"]//2 - com
     metadata["output_padded_ratio"] = metadata["output_frame_width"]/metadata["padded_frame_width"]
 
     return metadata, background_avg
@@ -272,6 +278,30 @@ def prepare_from_mem(metadata, dark_frames, raw_frames):
 
     return metadata, center_frames, dark_frames
 
+def prepare_from_mem2(metadata, dark_grp, raw_grp):
+
+    ##All ranks compute the same thing
+    ##Grabs the first 100 frames and computes the center of mass
+    ##when using new STXM, dark_frames comes in as a HDF group
+    n_dark = len(list(dark_grp))
+    dark = []
+    for i in range(n_dark):
+        dark.append(np.array(dark_grp[str(i)]))
+    dark_frames = np.array(dark)
+
+    #grab some frames from which to calculate the center of mass
+    center_frames = []
+    if metadata["double_exposure"]:
+        for i in range(0, 100, 2):
+            center_frames.append(np.array(raw_grp[str(i)]))
+            center_frames.append(np.array(raw_grp[str(i + 1)]))
+    else:
+        for i in range(0, 25, 1):
+            center_frames.append(np.array(raw_grp[str(i)]))
+
+    center_frames = np.array(center_frames)
+
+    return metadata, center_frames, dark_frames
 
 def prepare_from_socket(metadata, network_metadata):
 
@@ -299,7 +329,7 @@ def prepare(metadata, dark_frames, raw_frames, network_metadata):
 
     #data coming from mem or from disk
     else:
-        metadata, center_frames, dark_frames = prepare_from_mem(metadata, dark_frames, raw_frames)
+        metadata, center_frames, dark_frames = prepare_from_mem2(metadata, dark_frames, raw_frames)
     
     metadata, background_avg =  compute_background_metadata(metadata, center_frames, dark_frames)
 
@@ -320,7 +350,7 @@ def prepare_filter_functions(metadata, background_avg):
 
     #single and double exposure functions
     f_cleanframes = jax.jit(lambda x: cleanXraw_vmap(x))
-    f_cleanframes_d = jax.jit(lambda x, y: combine_double_exposure_vmapf(cleanXraw_vmap_d1(x), cleanXraw_vmap_d2(y)))
+    f_cleanframes_d = jax.jit(lambda x, y: combine_double_exposure_vmapf(cleanXraw_vmap_d2(x), cleanXraw_vmap_d1(y)))
 
     def f(clean_frame):
         filtered_frame = filter_frame(clean_frame, kernel_box)
@@ -337,6 +367,9 @@ def prepare_filter_functions(metadata, background_avg):
 
 def process(metadata, raw_frames, background_avg, local_batch_size, received_exp_frames, network_metadata):
 
+    frame_list = list(raw_frames)
+    nf = len(frame_list)
+    ny,nx = raw_frames[frame_list[0]].shape
     if metadata["double_exposure"]:
         printv(color("\nProcessing the stack of raw frames as a double exposure scan...\n", bcolors.OKGREEN))
     else:
@@ -349,7 +382,7 @@ def process(metadata, raw_frames, background_avg, local_batch_size, received_exp
                        received_exp_frames[0].shape[0], received_exp_frames[0].shape[1])), bcolors.HEADER))
         results = process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_frames, network_metadata)
     else:
-        printv(color("\r Processing a stack of frames of size: {}".format((raw_frames.shape[0], raw_frames[0].shape[0], raw_frames[0].shape[1])), bcolors.HEADER))
+        printv(color("\r Processing a stack of frames of size: {}".format((nf, ny, nx)), bcolors.HEADER))
         results = process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter_all_dexp, network_metadata)
 
     return results
@@ -496,8 +529,9 @@ def process_from_socket(metadata, filter_all, filter_all_dexp, received_exp_fram
 
 def process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter_all_dexp, network_metadata):
 
-    n_total_frames = raw_frames.shape[0]
-
+    n_total_frames = len(list(raw_frames))
+    ny, nx = raw_frames['0'].shape
+#    n_total_frames = raw_frames.shape[0]
 
     #if the batch size is not even in double exposure we fix that
     if local_batch_size % 2 != 0 and metadata['double_exposure']:
@@ -513,10 +547,10 @@ def process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter
 
     #This stores the frames indexes that are being process by this mpi rank
     my_indexes = []
-    n_batches = raw_frames.shape[0] // batch_size
+    n_batches = n_total_frames // batch_size
 
     #Here we correct if the total number of frames is not a multiple of batch_size  
-    extra = raw_frames.shape[0] - (n_batches * batch_size)
+    extra = n_total_frames - (n_batches * batch_size)
 
     extra_last_batch = None
     if rank * local_batch_size < extra: 
@@ -531,7 +565,7 @@ def process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter
 
     out_data_shape = (n_out_frames , metadata["output_frame_width"], metadata["output_frame_width"])
     out_data = np.empty(out_data_shape,dtype=np.float32)
-    frames_batch = npo.empty((local_batch_size, raw_frames[0].shape[0], raw_frames[0].shape[1]))
+    frames_batch = npo.empty((local_batch_size, ny, nx))
 
     #Streaming variables
     frames_ready = 0
@@ -554,10 +588,12 @@ def process_from_disk(metadata, raw_frames, local_batch_size, filter_all, filter
         i_e = i_s + local_batch_size // (metadata['double_exposure']+1)
 
         for j in range(local_i, upper_bound) : 
-            frames_batch[j % local_batch_size] = raw_frames[j][:, :]
+            frames_batch[j % local_batch_size] = raw_frames[str(j)][:, :]
 
+        frames_batch[:,0:520,-180:] = 0.
+        
         if metadata["double_exposure"]:
-            centered_rescaled_frames_jax = filter_all_dexp(frames_batch[:-1:2], frames_batch[1::2])
+            centered_rescaled_frames_jax = filter_all_dexp(frames_batch[1::2], frames_batch[:-1:2])
         else:
             centered_rescaled_frames_jax = filter_all(frames_batch)
 
@@ -589,7 +625,7 @@ def save_results(fname, metadata, local_data, my_indexes, n_frames):
 
     n_elements = npo.prod([i for i in local_data.shape])
     
-    print(npo.max(local_data))
+    #print(npo.max(local_data))
 
     frames_gather = gather(local_data, (n_frames, local_data[0].shape[0], local_data[0].shape[1]), n_elements, npo.float32)  
 

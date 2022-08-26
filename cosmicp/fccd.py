@@ -3,6 +3,7 @@
 import jax.numpy as np
 from jax.experimental import loops
 import jax
+import numpy as npo
 
 #import scipy.constants
  
@@ -90,13 +91,14 @@ def conv2d(data, filt):
 
 
 @jax.jit
-def filter_bblocks(data):
+def filter_bblocks(data): 
+    
     #yy=np.reshape(data[:,:,0],(nrcols,nbmux))
     # vertical stripes
     yy=np.reshape(data[:,:,11],(nrcols,192))
     # clip and smooth
 
-    filter_strength = 3
+    filter_strength = 2
 
     bkgthr=filter_strength # background threshold
 
@@ -110,10 +112,11 @@ def filter_bblocks(data):
     data_out = data-yy_s
     #data_out = data#-yy_s
     ###yy_avg=np.reshape(np.average(np.clip(bblocksXtif1(data_out)[1:11,:,:],0,2*bkgthr),axis=0),(1,192,12))
-    yy_avg=np.reshape(np.average(np.clip(data_out[1:10,:,:],0,2*bkgthr),axis=0),(1,192,12))
+    yy_avg=np.reshape(np.average(np.clip(data_out[1:10,:,:],0,1*bkgthr),axis=0),(1,192,12))
     data_out -= yy_avg
 
     data_out *= data_out> filter_strength
+    
     return data_out#-yy_s-yy_avg
 
 ######################3

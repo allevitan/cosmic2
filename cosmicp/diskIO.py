@@ -10,8 +10,8 @@ from .common import printd, printv, color, bcolors
 def read_metadata_hdf5(fname):
 
     with h5py.File(fname, "r") as f:
-
-        return json.loads(f["metadata/"][()])
+	    meta = json.loads(f["metadata/"][()])
+    return meta
 
 
 def read_metadata(json_file):

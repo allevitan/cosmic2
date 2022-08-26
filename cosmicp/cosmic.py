@@ -7,6 +7,7 @@ import zmq
 from cosmicp.options import parse_arguments
 from cosmicp.common import rank, size, mpi_enabled, printd, printv, set_visible_device, complete_metadata, color, bcolors
 import socket
+from skimage.io import imsave
 
 if __name__ == '__main__':
     args = sys.argv[1:]
@@ -111,7 +112,13 @@ if __name__ == '__main__':
 
             dark_frames = f["entry_1/data_1/dark_frames"]
             exp_frames = f["entry_1/data_1/exp_frames"]
-    
+            
+        elif options["fname"].endswith(".stxm"):
+            metadata = read_metadata_hdf5(options["fname"])
+            metadata = complete_metadata(metadata, options["conf_file"])
+            f = h5py.File(options["fname"], 'r')
+            dark_frames = f["entry0/ccd0/dark"]
+            exp_frames = f["entry0/ccd0/exp"]
 
         metadata, background_avg, received_exp_frames = prepare(metadata, dark_frames, exp_frames, network_metadata)
 
